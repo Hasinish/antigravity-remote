@@ -1,0 +1,15 @@
+# node modules
+node_modules/
+mobile-app/node_modules/
+server/node_modules/
+
+# expo directories
+.expo/
+mobile-app/.expo/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# logs
+*.log
