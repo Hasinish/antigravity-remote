@@ -234,7 +234,10 @@ wss.on('connection', (ws) => {
       const data = JSON.parse(message);
       console.log(`[Mobile -> PC]: Action = ${data.type}`);
       
-      if (!chatPage || chatPage.isClosed()) {
+      const isPageClosed = chatPage && typeof chatPage.isClosed === 'function' ? chatPage.isClosed() : false;
+      const isFrameDetached = chatPage && typeof chatPage.isDetached === 'function' ? chatPage.isDetached() : false;
+      
+      if (!chatPage || isPageClosed || isFrameDetached) {
         if (browser) {
           chatPage = await findChatPage(browser);
         } else {
