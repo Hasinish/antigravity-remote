@@ -218,9 +218,8 @@ wss.on('connection', (ws) => {
       }
       
       if (data.type === 'input') {
-        console.log(`[Bridge] Injecting text: "${data.text}"`);
-        await chatPage.evaluate((val) => {
-          // Recursive shadow DOM traversal helper
+        console.log(`[Bridge] Injecting text natively: "${data.text}"`);
+        const elementHandle = await chatPage.evaluateHandle(() => {
           function findElementInShadow(selector, root = document, filterFn = null) {
             let found = null;
             function traverse(node) {
@@ -247,40 +246,34 @@ wss.on('connection', (ws) => {
             return found;
           }
 
-          // Locate the visible contenteditable chat div or standard textarea
           const target = findElementInShadow('div[contenteditable="true"], textarea', document, (el) => {
             if (el.classList.contains('inputarea') || el.className.includes('monaco')) return false;
             const rect = el.getBoundingClientRect();
             return rect.width > 5 && rect.height > 5;
           });
+          return target;
+        });
 
-          if (target) {
-            console.log(`[DOM] Target input found: tag=${target.tagName}, class="${target.className}"`);
-            target.focus();
-            
-            if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
-              target.value = val;
-              target.dispatchEvent(new Event('input', { bubbles: true }));
-              target.dispatchEvent(new Event('change', { bubbles: true }));
-            } else {
-              // Select all content and delete it to reset, then insert the new value
-              const selection = window.getSelection();
-              const range = document.createRange();
-              range.selectNodeContents(target);
-              selection.removeAllRanges();
-              selection.addRange(range);
-              document.execCommand('delete', false);
-              
-              // Insert new text which updates framework state
-              document.execCommand('insertText', false, val);
-            }
-          } else {
-            console.log('[DOM] ERROR: No valid chat input element found!');
-          }
-        }, data.text);
+        if (elementHandle) {
+          // Focus and click the element to bring cursor there
+          await elementHandle.focus();
+          await elementHandle.click();
+          
+          // Select all and delete
+          await chatPage.keyboard.down('Control');
+          await chatPage.keyboard.press('A');
+          await chatPage.keyboard.up('Control');
+          await chatPage.keyboard.press('Backspace');
+          
+          // Type the text natively
+          await chatPage.keyboard.type(data.text);
+          console.log('[Bridge] Native typing complete.');
+        } else {
+          console.log('[Bridge] ERROR: Could not get input element handle.');
+        }
       } else if (data.type === 'send') {
-        console.log('[Bridge] Triggering send action');
-        await chatPage.evaluate(() => {
+        console.log('[Bridge] Triggering native send');
+        const btnHandle = await chatPage.evaluateHandle(() => {
           function findElementInShadow(selector, root = document, filterFn = null) {
             let found = null;
             function traverse(node) {
@@ -307,36 +300,24 @@ wss.on('connection', (ws) => {
             return found;
           }
 
-          // Locate a visible send button
           const sendBtn = findElementInShadow('button', document, (btn) => {
             const text = btn.innerText.toLowerCase();
             const label = (btn.getAttribute('aria-label') || '').toLowerCase();
             const html = btn.innerHTML.toLowerCase();
             const isSend = text.includes('send') || label.includes('send') || html.includes('send') || html.includes('svg');
             const rect = btn.getBoundingClientRect();
-            return isSend && rect.width > 0 && rect.height > 0;
+            return isSend && rect.width > 5 && rect.height > 5;
           });
-
-          if (sendBtn) {
-            console.log(`[DOM] Clicking send button: text="${sendBtn.innerText}", class="${sendBtn.className}"`);
-            sendBtn.click();
-          } else {
-            console.log('[DOM] No send button matched. Attempting keyboard Enter fallback.');
-            const target = findElementInShadow('div[contenteditable="true"], textarea', document, (el) => {
-              if (el.classList.contains('inputarea') || el.className.includes('monaco')) return false;
-              const rect = el.getBoundingClientRect();
-              return rect.width > 0 && rect.height > 0;
-            });
-            if (target) {
-              const keydown = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true });
-              const keypress = new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true });
-              const inputEvent = new Event('input', { bubbles: true });
-              target.dispatchEvent(keydown);
-              target.dispatchEvent(keypress);
-              target.dispatchEvent(inputEvent);
-            }
-          }
+          return sendBtn;
         });
+
+        if (btnHandle) {
+          await btnHandle.click();
+          console.log('[Bridge] Native send button clicked.');
+        } else {
+          console.log('[Bridge] No send button handle found, trying Enter key.');
+          await chatPage.keyboard.press('Enter');
+        }
       } else if (data.type === 'new_chat') {
         await chatPage.evaluate(() => {
           const buttons = Array.from(document.querySelectorAll('button, a'));
