@@ -2,6 +2,15 @@
 
 ## Development Timeline
 
+### 2026-06-16 (continued — Zero-Lag Typing & Full Sync Fixes)
+* **Root cause of typing lag identified**: The `TextInput` component was a React-controlled input (`value={state}`), causing a full React reconciliation on every single keystroke — exactly what made it feel sluggish.
+* **Fix — uncontrolled native `<textarea>` on web**: Rewrote `ChatInput.tsx` to render a raw uncontrolled HTML `<textarea>` on `Platform.OS === 'web'`. The browser handles all rendering natively — zero React re-renders per keypress. Result: instant, silky-smooth typing at any speed.
+* **App architecture decoupled**: Moved all input state out of `App.tsx` into `ChatInput.tsx`. App now only communicates with ChatInput via a `ChatInputHandle` ref (`setTextExternal` for IDE→App sync) and two stable callbacks (`onTextChange` for debounced WebSocket sync, `onSend`). App never re-renders on typing.
+* **Text injection method fixed (Lexical API)**: Discovered the IDE's chat input is powered by the **Lexical** rich-text editor (Meta). Using `execCommand('insertText')` without interacting with Lexical's internal state caused text to duplicate/append. Fixed by using `target.__lexicalEditor.parseEditorState` + `setEditorState` to replace the editor's content atomically. Verified via Puppeteer test script.
+* **Quick-pick panel un-stuck**: Resolved the "Open in current window" overlay staying stuck on app after IDE selection. Added error-catch and null-page guards in `startWatchingTranscript` to detect workspace reloads and broadcast `hide_switch_options` immediately.
+* **React.memo applied**: Wrapped `Header`, `HistoryPanel`, and `MessageFeed` in `React.memo` to prevent unnecessary re-renders from App-level state changes.
+* **Bridge file logger added**: All server logs now also written to `server/bridge-server.log` for real-time diagnostics.
+
 ### 2026-06-16 (continued — Bidirectional Mirroring, Panel Sync & Aesthetics)
 * **Bidirectional Input Sync (Zero Lag)**: Optimized input diffing logic using direct DOM assignments (`textContent`) and React event dispatching. Bypassed operation queue bottleneck for typing events. Added a 2-second reverse-echo block following mobile input events to resolve cursor resetting and feedback loops.
 * **Aesthetics & Premium Styling**: Redesigned the companion app client layout and styling to match the IDE. Integrated sleek Zinc-950 background colors (`#09090b`), custom minimalist dark scrollbars for the Web build, full-width chat bubbles, and nested the model selector dropdown inside the input box matching the IDE's custom aesthetics.
