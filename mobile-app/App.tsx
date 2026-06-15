@@ -167,21 +167,33 @@ export default function App() {
     setMessages([]);
   };
 
+  const lastSentText = useRef('');
+  const syncTimeout = useRef<any>(null);
+
   const handleTextChange = (text: string) => {
     setInputText(text);
     // If this change was triggered by the IDE, don't send it back to avoid an echo loop
     if (isFromIDE.current) {
       isFromIDE.current = false;
+      lastSentText.current = text;
       return;
     }
-    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-      socketRef.current.send(
-        JSON.stringify({
-          type: 'input',
-          text
-        })
-      );
+    
+    if (syncTimeout.current) {
+      clearTimeout(syncTimeout.current);
     }
+
+    syncTimeout.current = setTimeout(() => {
+      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN && text !== lastSentText.current) {
+        lastSentText.current = text;
+        socketRef.current.send(
+          JSON.stringify({
+            type: 'input',
+            text
+          })
+        );
+      }
+    }, 100);
   };
 
   const handleKeyPress = (e: any) => {
@@ -196,12 +208,27 @@ export default function App() {
   const handleSend = () => {
     if (!inputText.trim()) return;
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      // Clear any pending sync timeout
+      if (syncTimeout.current) {
+        clearTimeout(syncTimeout.current);
+      }
+
+      // Force sync the latest text first so the IDE is guaranteed to have it
+      socketRef.current.send(
+        JSON.stringify({
+          type: 'input',
+          text: inputText
+        })
+      );
+
+      // Send the native trigger to click the Send button
       socketRef.current.send(
         JSON.stringify({
           type: 'send'
         })
       );
       setInputText('');
+      lastSentText.current = '';
       setInputKey((prev) => prev + 1);
     }
   };
