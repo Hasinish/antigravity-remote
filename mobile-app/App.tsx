@@ -24,7 +24,11 @@ interface Message {
 }
 
 export default function App() {
-  const [ipAddress, setIpAddress] = useState('192.168.1.100'); // Default IP to edit
+  const [ipAddress, setIpAddress] = useState(
+    Platform.OS === 'web' && typeof window !== 'undefined' && window.location.hostname
+      ? window.location.hostname
+      : '192.168.1.100'
+  );
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
