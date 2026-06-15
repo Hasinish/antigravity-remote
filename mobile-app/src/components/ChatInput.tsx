@@ -1,16 +1,13 @@
-import React, { useState, useRef, useImperativeHandle, forwardRef, useCallback } from 'react';
-import { View, TextInput, TouchableOpacity, Text } from 'react-native';
+import React, { useRef, useImperativeHandle, forwardRef, useCallback } from 'react';
+import { View, TextInput, TouchableOpacity, Text, Platform } from 'react-native';
 import { styles } from '../styles';
 
 export interface ChatInputHandle {
-  /** Set the input text from outside (e.g. IDE→App sync) without re-rendering App */
   setTextExternal: (text: string) => void;
 }
 
 interface ChatInputProps {
-  /** Called when the user types — debounced, only used for WebSocket sync */
   onTextChange: (text: string) => void;
-  /** Called when user presses Send */
   onSend: (text: string) => void;
   selectedModel: string;
   showModelDropdown: boolean;
@@ -28,114 +25,162 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(({
   models,
   handleModelSelect,
 }, ref) => {
-  const [text, setText] = useState('');
+  // On web: use a raw DOM ref — no React controlled state at all, zero re-renders per keystroke
+  const nativeTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // On native: use a TextInput ref for reading value
+  const nativeInputRef = useRef<TextInput | null>(null);
+  const nativeTextValue = useRef('');
+
   const syncTimeout = useRef<any>(null);
   const lastSent = useRef('');
-  const isFromIDE = useRef(false);
 
-  // Expose a method to parent so the IDE can push text in without re-rendering App
   useImperativeHandle(ref, () => ({
     setTextExternal(newText: string) {
-      isFromIDE.current = true;
-      setText(newText);
       lastSent.current = newText;
+      if (Platform.OS === 'web' && nativeTextareaRef.current) {
+        // Write directly to DOM — no React re-render at all
+        nativeTextareaRef.current.value = newText;
+      } else {
+        nativeTextValue.current = newText;
+      }
     },
   }));
 
-  const handleChangeText = useCallback((newText: string) => {
-    setText(newText);
-
-    // IDE-originated update — don't echo back
-    if (isFromIDE.current) {
-      isFromIDE.current = false;
-      lastSent.current = newText;
-      return;
-    }
-
-    // Debounce the WebSocket sync by 100 ms
+  const scheduleSync = useCallback((text: string) => {
     if (syncTimeout.current) clearTimeout(syncTimeout.current);
     syncTimeout.current = setTimeout(() => {
-      if (newText !== lastSent.current) {
-        lastSent.current = newText;
-        onTextChange(newText);
+      if (text !== lastSent.current) {
+        lastSent.current = text;
+        onTextChange(text);
       }
-    }, 100);
+    }, 80);
   }, [onTextChange]);
 
-  const handleKeyPress = useCallback((e: any) => {
-    const key = e.nativeEvent?.key ?? e.key;
-    const shiftKey = e.nativeEvent?.shiftKey ?? e.shiftKey;
-    if (key === 'Enter' && !shiftKey) {
-      e.preventDefault?.();
-      handleSend();
-    }
-  }, [text]);
-
   const handleSend = useCallback(() => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    // Cancel pending debounce so the send includes the very latest text
+    const text = Platform.OS === 'web'
+      ? (nativeTextareaRef.current?.value ?? '')
+      : nativeTextValue.current;
+
+    if (!text.trim()) return;
     if (syncTimeout.current) clearTimeout(syncTimeout.current);
     lastSent.current = '';
-    onSend(text);
-    setText('');
-  }, [text, onSend]);
 
+    onSend(text);
+
+    // Clear input
+    if (Platform.OS === 'web' && nativeTextareaRef.current) {
+      nativeTextareaRef.current.value = '';
+    } else {
+      nativeTextValue.current = '';
+    }
+  }, [onSend]);
+
+  const handleKeyDown = useCallback((e: any) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }, [handleSend]);
+
+  const modelDropdown = showModelDropdown ? (
+    <View style={styles.dropdownMenu}>
+      {models.map((model) => (
+        <TouchableOpacity
+          key={model}
+          style={styles.dropdownItem}
+          activeOpacity={0.7}
+          onPress={() => handleModelSelect(model)}
+        >
+          <Text style={[
+            styles.dropdownItemText,
+            selectedModel === model && styles.dropdownItemTextSelected
+          ]}>
+            {model}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  ) : null;
+
+  const actionsRow = (
+    <View style={styles.inputActionsRow}>
+      <View style={styles.inputActionsLeft}>
+        <TouchableOpacity style={styles.actionButton} activeOpacity={0.7}>
+          <Text style={styles.actionButtonText}>+</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.inputModelSelector}
+          activeOpacity={0.7}
+          onPress={() => setShowModelDropdown(!showModelDropdown)}
+        >
+          <Text style={styles.inputModelSelectorText}>{selectedModel}</Text>
+          <Text style={styles.inputModelSelectorArrow}>▼</Text>
+        </TouchableOpacity>
+      </View>
+      <TouchableOpacity style={styles.sendButton} activeOpacity={0.7} onPress={handleSend}>
+        <Text style={styles.sendBtnText}>Send</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  if (Platform.OS === 'web') {
+    // Fully uncontrolled native textarea — browser handles all rendering, zero React overhead
+    return (
+      <View style={styles.inputArea}>
+        <View style={styles.inputContainer}>
+          {modelDropdown}
+          {/* @ts-ignore — native textarea element, not a React Native component */}
+          <textarea
+            ref={nativeTextareaRef}
+            rows={1}
+            placeholder="Ask anything, @ to mention, / for actions"
+            onInput={(e: any) => scheduleSync(e.target.value)}
+            onKeyDown={handleKeyDown}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              outline: 'none',
+              color: '#e6edf3',
+              fontSize: 14,
+              fontFamily: 'Inter, system-ui, sans-serif',
+              resize: 'none',
+              width: '100%',
+              padding: '8px 4px',
+              minHeight: 36,
+              maxHeight: 160,
+              overflowY: 'auto',
+              lineHeight: '1.5',
+            }}
+          />
+          {actionsRow}
+        </View>
+      </View>
+    );
+  }
+
+  // Native iOS/Android — TextInput is fine here (native rendering is fast)
   return (
     <View style={styles.inputArea}>
       <View style={styles.inputContainer}>
-        {showModelDropdown && (
-          <View style={styles.dropdownMenu}>
-            {models.map((model) => (
-              <TouchableOpacity
-                key={model}
-                style={styles.dropdownItem}
-                activeOpacity={0.7}
-                onPress={() => handleModelSelect(model)}
-              >
-                <Text
-                  style={[
-                    styles.dropdownItemText,
-                    selectedModel === model && styles.dropdownItemTextSelected
-                  ]}
-                >
-                  {model}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
+        {modelDropdown}
         <TextInput
+          ref={nativeInputRef}
           style={styles.chatInput}
-          value={text}
-          onChangeText={handleChangeText}
-          onKeyPress={handleKeyPress}
+          onChangeText={(text) => {
+            nativeTextValue.current = text;
+            scheduleSync(text);
+          }}
+          onKeyPress={(e: any) => {
+            if (e.nativeEvent?.key === 'Enter' && !e.nativeEvent?.shiftKey) {
+              e.preventDefault?.();
+              handleSend();
+            }
+          }}
           placeholder="Ask anything, @ to mention, / for actions"
           placeholderTextColor="#71717a"
           multiline
         />
-
-        <View style={styles.inputActionsRow}>
-          <View style={styles.inputActionsLeft}>
-            <TouchableOpacity style={styles.actionButton} activeOpacity={0.7}>
-              <Text style={styles.actionButtonText}>+</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.inputModelSelector}
-              activeOpacity={0.7}
-              onPress={() => setShowModelDropdown(!showModelDropdown)}
-            >
-              <Text style={styles.inputModelSelectorText}>{selectedModel}</Text>
-              <Text style={styles.inputModelSelectorArrow}>▼</Text>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity style={styles.sendButton} activeOpacity={0.7} onPress={handleSend}>
-            <Text style={styles.sendBtnText}>Send</Text>
-          </TouchableOpacity>
-        </View>
+        {actionsRow}
       </View>
     </View>
   );
