@@ -361,6 +361,7 @@ const mdStyles = StyleSheet.create({
     width: '100%',
   },
   table: {
+    width: '100%',
     minWidth: 500,
     backgroundColor: '#0d1117',
   },
