@@ -164,16 +164,48 @@ async function injectText(text) {
   // Focus the element first
   target.focus();
   
-  // Clear and insert using execCommand (Trusted Types safe and triggers React listeners correctly)
+  // Clear and insert using Lexical Editor API (native for Lexical contenteditable)
   try {
-    const selection = window.getSelection();
-    selection.selectAllChildren(target);
-    document.execCommand('delete', false);
-    if (text) {
-      document.execCommand('insertText', false, text);
+    const editor = target.__lexicalEditor;
+    if (editor) {
+      const stateJson = {
+        root: {
+          children: [
+            {
+              children: [
+                {
+                  detail: 0,
+                  format: 0,
+                  mode: "normal",
+                  style: "",
+                  text: text || "",
+                  type: "text",
+                  version: 1
+                }
+              ],
+              direction: "ltr",
+              format: "",
+              indent: 0,
+              type: "paragraph",
+              version: 1
+            }
+          ],
+          direction: "ltr",
+          format: "",
+          indent: 0,
+          type: "root",
+          version: 1
+        }
+      };
+      const state = editor.parseEditorState(stateJson);
+      editor.setEditorState(state);
+    } else {
+      target.textContent = text;
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+      target.dispatchEvent(new Event('change', { bubbles: true }));
     }
   } catch (e) {
-    console.error('[DOM] Failed via execCommand, falling back:', e.message);
+    console.error('[DOM] Lexical injection failed, falling back:', e.message);
     target.textContent = text;
     target.dispatchEvent(new Event('input', { bubbles: true }));
     target.dispatchEvent(new Event('change', { bubbles: true }));
@@ -810,16 +842,48 @@ async function applyInputDiff(page, newText) {
       const target = chatInputs[chatInputs.length - 1];
       target.focus();
 
-      // Clear and insert using execCommand (Trusted Types safe and triggers React listeners correctly)
+      // Clear and insert using Lexical Editor API (native for Lexical contenteditable)
       try {
-        const selection = window.getSelection();
-        selection.selectAllChildren(target);
-        document.execCommand('delete', false);
-        if (text) {
-          document.execCommand('insertText', false, text);
+        const editor = target.__lexicalEditor;
+        if (editor) {
+          const stateJson = {
+            root: {
+              children: [
+                {
+                  children: [
+                    {
+                      detail: 0,
+                      format: 0,
+                      mode: "normal",
+                      style: "",
+                      text: text || "",
+                      type: "text",
+                      version: 1
+                    }
+                  ],
+                  direction: "ltr",
+                  format: "",
+                  indent: 0,
+                  type: "paragraph",
+                  version: 1
+                }
+              ],
+              direction: "ltr",
+              format: "",
+              indent: 0,
+              type: "root",
+              version: 1
+            }
+          };
+          const state = editor.parseEditorState(stateJson);
+          editor.setEditorState(state);
+        } else {
+          target.textContent = text;
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+          target.dispatchEvent(new Event('change', { bubbles: true }));
         }
       } catch (e) {
-        console.error('[DOM] Failed via execCommand, falling back:', e.message);
+        console.error('[DOM] Lexical injection failed, falling back:', e.message);
         target.textContent = text;
         target.dispatchEvent(new Event('input', { bubbles: true }));
         target.dispatchEvent(new Event('change', { bubbles: true }));
