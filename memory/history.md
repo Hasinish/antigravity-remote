@@ -2,7 +2,8 @@
 
 ## Development Timeline
 
-### 2026-06-16 (continued — Zero-Lag Typing & Full Sync Fixes)
+### 2026-06-16 (continued — Markdown Table Support & Zero-Lag Typing)
+* **Markdown Table Rendering Support**: Added custom block parsing and layout styles to [MarkdownText.tsx](file:///D:/antigravity-remote/mobile-app/src/components/MarkdownText.tsx) to parse markdown tables and render them with beautiful responsive horizontal scrolling, fixing the broken raw text display for comparison tables.
 * **Root cause of typing lag identified**: The `TextInput` component was a React-controlled input (`value={state}`), causing a full React reconciliation on every single keystroke — exactly what made it feel sluggish.
 * **Fix — uncontrolled native `<textarea>` on web**: Rewrote `ChatInput.tsx` to render a raw uncontrolled HTML `<textarea>` on `Platform.OS === 'web'`. The browser handles all rendering natively — zero React re-renders per keypress. Result: instant, silky-smooth typing at any speed.
 * **App architecture decoupled**: Moved all input state out of `App.tsx` into `ChatInput.tsx`. App now only communicates with ChatInput via a `ChatInputHandle` ref (`setTextExternal` for IDE→App sync) and two stable callbacks (`onTextChange` for debounced WebSocket sync, `onSend`). App never re-renders on typing.
