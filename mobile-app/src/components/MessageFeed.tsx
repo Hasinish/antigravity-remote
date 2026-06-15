@@ -89,4 +89,4 @@ export const MessageFeed: React.FC<MessageFeedProps> = React.memo(({
       )}
     </ScrollView>
   );
-};
+});

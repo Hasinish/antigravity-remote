@@ -105,4 +105,4 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = React.memo(({
       </View>
     </View>
   );
-};
+});

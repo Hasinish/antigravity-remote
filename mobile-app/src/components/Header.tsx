@@ -32,4 +32,4 @@ export const Header: React.FC<HeaderProps> = React.memo(({
       </View>
     </View>
   );
-};
+});
