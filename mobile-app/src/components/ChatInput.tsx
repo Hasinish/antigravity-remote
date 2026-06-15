@@ -70,6 +70,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(({
     // Clear input
     if (Platform.OS === 'web' && nativeTextareaRef.current) {
       nativeTextareaRef.current.value = '';
+      nativeTextareaRef.current.style.height = '36px';
     } else {
       nativeTextValue.current = '';
     }
@@ -134,7 +135,13 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(({
             ref={nativeTextareaRef}
             rows={1}
             placeholder="Ask anything, @ to mention, / for actions"
-            onInput={(e: any) => scheduleSync(e.target.value)}
+            onInput={(e: any) => {
+              const el = e.target as HTMLTextAreaElement;
+              // Auto-resize: collapse to auto first so shrinking works too
+              el.style.height = 'auto';
+              el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+              scheduleSync(el.value);
+            }}
             onKeyDown={handleKeyDown}
             style={{
               background: 'transparent',
@@ -146,10 +153,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(({
               resize: 'none',
               width: '100%',
               padding: '8px 4px',
-              minHeight: 36,
-              maxHeight: 160,
+              height: '36px',
+              maxHeight: '160px',
               overflowY: 'auto',
               lineHeight: '1.5',
+              boxSizing: 'border-box',
             }}
           />
           {actionsRow}
