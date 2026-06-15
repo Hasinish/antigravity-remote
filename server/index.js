@@ -251,18 +251,29 @@ wss.on('connection', (ws) => {
           const target = findElementInShadow('div[contenteditable="true"], textarea', document, (el) => {
             if (el.classList.contains('inputarea') || el.className.includes('monaco')) return false;
             const rect = el.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
+            return rect.width > 5 && rect.height > 5;
           });
 
           if (target) {
             console.log(`[DOM] Target input found: tag=${target.tagName}, class="${target.className}"`);
+            target.focus();
+            
             if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
               target.value = val;
+              target.dispatchEvent(new Event('input', { bubbles: true }));
+              target.dispatchEvent(new Event('change', { bubbles: true }));
             } else {
-              target.innerText = val;
+              // Select all content and delete it to reset, then insert the new value
+              const selection = window.getSelection();
+              const range = document.createRange();
+              range.selectNodeContents(target);
+              selection.removeAllRanges();
+              selection.addRange(range);
+              document.execCommand('delete', false);
+              
+              // Insert new text which updates framework state
+              document.execCommand('insertText', false, val);
             }
-            target.dispatchEvent(new Event('input', { bubbles: true }));
-            target.dispatchEvent(new Event('change', { bubbles: true }));
           } else {
             console.log('[DOM] ERROR: No valid chat input element found!');
           }
