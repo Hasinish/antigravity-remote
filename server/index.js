@@ -67,19 +67,33 @@ async function findChatPage(browserInstance) {
         const title = await page.title().catch(() => '');
         console.log(`[i] Scanning target: "${title}" (${url}) [type=${type}]`);
         
-        // Check if this page or any of its frames has a textarea
+        // Check if this page has a non-editor textarea
         const hasTextarea = await page.$('textarea').catch(() => null);
         if (hasTextarea) {
-          console.log(`[+] Identified chat page directly from target: "${title}"`);
-          return page;
+          const isEditor = await page.evaluate(() => {
+            const el = document.querySelector('textarea');
+            return el && (el.classList.contains('inputarea') || el.className.includes('monaco'));
+          }).catch(() => true);
+          
+          if (!isEditor) {
+            console.log(`[+] Identified chat page directly from target: "${title}"`);
+            return page;
+          }
         }
         
         const frames = page.frames();
         for (const frame of frames) {
           const hasTextareaInFrame = await frame.$('textarea').catch(() => null);
           if (hasTextareaInFrame) {
-            console.log(`[+] Identified chat page inside target frame: ${frame.url()}`);
-            return page;
+            const isEditor = await frame.evaluate(() => {
+              const el = document.querySelector('textarea');
+              return el && (el.classList.contains('inputarea') || el.className.includes('monaco'));
+            }).catch(() => true);
+            
+            if (!isEditor) {
+              console.log(`[+] Identified chat page inside target frame: ${frame.url()}`);
+              return frame; // Return the FRAME itself!
+            }
           }
         }
       }
