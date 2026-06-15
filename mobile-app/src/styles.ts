@@ -379,6 +379,7 @@ export const styles = StyleSheet.create({
   activityRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     maxWidth: '100%',
     paddingVertical: 3,
     marginBottom: 2,
@@ -392,7 +393,7 @@ export const styles = StyleSheet.create({
     color: '#6e7681',
     fontSize: 12,
     lineHeight: 16,
-    flex: 1,
+    flexShrink: 1,
   },
   activityChevron: {
     color: '#484f58',
