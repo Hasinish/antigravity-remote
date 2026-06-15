@@ -164,21 +164,20 @@ async function injectText(text) {
   // Focus the element first
   target.focus();
   
-  // Clear existing content using selection and delete command (Trusted Types safe)
+  // Clear and insert using execCommand (Trusted Types safe and triggers React listeners correctly)
   try {
     const selection = window.getSelection();
     selection.selectAllChildren(target);
     document.execCommand('delete', false);
+    if (text) {
+      document.execCommand('insertText', false, text);
+    }
   } catch (e) {
-    console.error('[DOM] Failed to clear using Selection + delete:', e.message);
+    console.error('[DOM] Failed via execCommand, falling back:', e.message);
+    target.textContent = text;
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+    target.dispatchEvent(new Event('change', { bubbles: true }));
   }
-  
-  // Set textContent directly (this is fast and Trusted Types safe)
-  target.textContent = text;
-  
-  // Dispatch React events so state updates
-  target.dispatchEvent(new Event('input', { bubbles: true }));
-  target.dispatchEvent(new Event('change', { bubbles: true }));
   
   // Place cursor at end
   try {
@@ -811,12 +810,20 @@ async function applyInputDiff(page, newText) {
       const target = chatInputs[chatInputs.length - 1];
       target.focus();
 
-      // Instantly set text content (Trusted Types safe)
-      target.textContent = text;
-
-      // Dispatch React inputs/change events so the state updates in the IDE
-      target.dispatchEvent(new Event('input', { bubbles: true }));
-      target.dispatchEvent(new Event('change', { bubbles: true }));
+      // Clear and insert using execCommand (Trusted Types safe and triggers React listeners correctly)
+      try {
+        const selection = window.getSelection();
+        selection.selectAllChildren(target);
+        document.execCommand('delete', false);
+        if (text) {
+          document.execCommand('insertText', false, text);
+        }
+      } catch (e) {
+        console.error('[DOM] Failed via execCommand, falling back:', e.message);
+        target.textContent = text;
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+        target.dispatchEvent(new Event('change', { bubbles: true }));
+      }
 
       // Reposition caret at the end of the text
       try {

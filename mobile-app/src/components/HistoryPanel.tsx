@@ -13,7 +13,7 @@ interface HistoryPanelProps {
   setSearchQuery: (query: string) => void;
 }
 
-export const HistoryPanel: React.FC<HistoryPanelProps> = ({
+export const HistoryPanel: React.FC<HistoryPanelProps> = React.memo(({
   showHistoryDropdown,
   setShowHistoryDropdown,
   conversations,

@@ -8,7 +8,7 @@ interface HeaderProps {
   disconnectBridge: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({
+export const Header: React.FC<HeaderProps> = React.memo(({
   openHistory,
   triggerNewChat,
   disconnectBridge,

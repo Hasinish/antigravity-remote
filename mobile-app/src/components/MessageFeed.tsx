@@ -10,7 +10,7 @@ interface MessageFeedProps {
   scrollViewRef: React.RefObject<ScrollView>;
 }
 
-export const MessageFeed: React.FC<MessageFeedProps> = ({
+export const MessageFeed: React.FC<MessageFeedProps> = React.memo(({
   messages,
   scrollViewRef,
 }) => {
