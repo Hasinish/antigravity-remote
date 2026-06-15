@@ -59,47 +59,14 @@ async function findChatPage(browserInstance) {
     for (const target of targets) {
       const type = target.type();
       const url = target.url();
-      
-      if (type === 'page' || type === 'webview') {
+      if (type === 'page' && url.includes('workbench.html')) {
+        console.log(`[+] Identified workbench page: ${url}`);
         const page = await target.page().catch(() => null);
-        if (!page) continue;
-        
-        const title = await page.title().catch(() => '');
-        console.log(`[i] Scanning target: "${title}" (${url}) [type=${type}]`);
-        
-        // Check if this page has a non-editor textarea
-        const hasTextarea = await page.$('textarea').catch(() => null);
-        if (hasTextarea) {
-          const isEditor = await page.evaluate(() => {
-            const el = document.querySelector('textarea');
-            return el && (el.classList.contains('inputarea') || el.className.includes('monaco'));
-          }).catch(() => true);
-          
-          if (!isEditor) {
-            console.log(`[+] Identified chat page directly from target: "${title}"`);
-            return page;
-          }
-        }
-        
-        const frames = page.frames();
-        for (const frame of frames) {
-          const hasTextareaInFrame = await frame.$('textarea').catch(() => null);
-          if (hasTextareaInFrame) {
-            const isEditor = await frame.evaluate(() => {
-              const el = document.querySelector('textarea');
-              return el && (el.classList.contains('inputarea') || el.className.includes('monaco'));
-            }).catch(() => true);
-            
-            if (!isEditor) {
-              console.log(`[+] Identified chat page inside target frame: ${frame.url()}`);
-              return frame; // Return the FRAME itself!
-            }
-          }
-        }
+        return page;
       }
     }
   } catch (error) {
-    console.error(`[-] Error scanning targets:`, error.message);
+    console.error(`[-] Error locating workbench page:`, error.message);
   }
   return null;
 }
@@ -253,12 +220,40 @@ wss.on('connection', (ws) => {
       if (data.type === 'input') {
         console.log(`[Bridge] Injecting text: "${data.text}"`);
         await chatPage.evaluate((val) => {
-          const textareas = Array.from(document.querySelectorAll('textarea'));
-          const editables = Array.from(document.querySelectorAll('[contenteditable="true"]'));
-          console.log(`[DOM] Found ${textareas.length} textareas and ${editables.length} editables.`);
-          
-          // Exclude Monaco/VS Code textareas
-          const target = textareas.find(t => !t.classList.contains('inputarea') && !t.className.includes('monaco')) || editables[0];
+          // Recursive shadow DOM traversal helper
+          function findElementInShadow(selector, root = document, filterFn = null) {
+            let found = null;
+            function traverse(node) {
+              if (!node || found) return;
+              if (node.querySelectorAll) {
+                const els = Array.from(node.querySelectorAll(selector));
+                for (const el of els) {
+                  if (!filterFn || filterFn(el)) {
+                    found = el;
+                    return;
+                  }
+                }
+              }
+              if (node.children) {
+                for (const child of node.children) {
+                  traverse(child);
+                }
+              }
+              if (node.shadowRoot) {
+                traverse(node.shadowRoot);
+              }
+            }
+            traverse(root);
+            return found;
+          }
+
+          // Locate the visible contenteditable chat div or standard textarea
+          const target = findElementInShadow('div[contenteditable="true"], textarea', document, (el) => {
+            if (el.classList.contains('inputarea') || el.className.includes('monaco')) return false;
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          });
+
           if (target) {
             console.log(`[DOM] Target input found: tag=${target.tagName}, class="${target.className}"`);
             if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
@@ -275,24 +270,59 @@ wss.on('connection', (ws) => {
       } else if (data.type === 'send') {
         console.log('[Bridge] Triggering send action');
         await chatPage.evaluate(() => {
-          const buttons = Array.from(document.querySelectorAll('button'));
-          console.log(`[DOM] Found ${buttons.length} buttons.`);
-          
-          const sendBtn = buttons.find(b => 
-            b.innerText.toLowerCase().includes('send') || 
-            b.innerHTML.includes('send') ||
-            b.className.toLowerCase().includes('send') ||
-            b.getAttribute('aria-label')?.toLowerCase().includes('send') ||
-            b.querySelector('svg')
-          );
+          function findElementInShadow(selector, root = document, filterFn = null) {
+            let found = null;
+            function traverse(node) {
+              if (!node || found) return;
+              if (node.querySelectorAll) {
+                const els = Array.from(node.querySelectorAll(selector));
+                for (const el of els) {
+                  if (!filterFn || filterFn(el)) {
+                    found = el;
+                    return;
+                  }
+                }
+              }
+              if (node.children) {
+                for (const child of node.children) {
+                  traverse(child);
+                }
+              }
+              if (node.shadowRoot) {
+                traverse(node.shadowRoot);
+              }
+            }
+            traverse(root);
+            return found;
+          }
+
+          // Locate a visible send button
+          const sendBtn = findElementInShadow('button', document, (btn) => {
+            const text = btn.innerText.toLowerCase();
+            const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+            const html = btn.innerHTML.toLowerCase();
+            const isSend = text.includes('send') || label.includes('send') || html.includes('send') || html.includes('svg');
+            const rect = btn.getBoundingClientRect();
+            return isSend && rect.width > 0 && rect.height > 0;
+          });
+
           if (sendBtn) {
             console.log(`[DOM] Clicking send button: text="${sendBtn.innerText}", class="${sendBtn.className}"`);
             sendBtn.click();
           } else {
             console.log('[DOM] No send button matched. Attempting keyboard Enter fallback.');
-            const textarea = document.querySelector('textarea:not(.inputarea)') || document.querySelector('[contenteditable="true"]');
-            if (textarea) {
-              textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+            const target = findElementInShadow('div[contenteditable="true"], textarea', document, (el) => {
+              if (el.classList.contains('inputarea') || el.className.includes('monaco')) return false;
+              const rect = el.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0;
+            });
+            if (target) {
+              const keydown = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true });
+              const keypress = new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true });
+              const inputEvent = new Event('input', { bubbles: true });
+              target.dispatchEvent(keydown);
+              target.dispatchEvent(keypress);
+              target.dispatchEvent(inputEvent);
             }
           }
         });
