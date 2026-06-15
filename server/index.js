@@ -251,23 +251,33 @@ wss.on('connection', (ws) => {
       }
       
       if (data.type === 'input') {
-        // Inject text into chat window
+        console.log(`[Bridge] Injecting text: "${data.text}"`);
         await chatPage.evaluate((val) => {
-          const textarea = document.querySelector('textarea') || document.querySelector('[contenteditable="true"]');
-          if (textarea) {
-            if (textarea.tagName === 'TEXTAREA' || textarea.tagName === 'INPUT') {
-              textarea.value = val;
+          const textareas = Array.from(document.querySelectorAll('textarea'));
+          const editables = Array.from(document.querySelectorAll('[contenteditable="true"]'));
+          console.log(`[DOM] Found ${textareas.length} textareas and ${editables.length} editables.`);
+          
+          // Exclude Monaco/VS Code textareas
+          const target = textareas.find(t => !t.classList.contains('inputarea') && !t.className.includes('monaco')) || editables[0];
+          if (target) {
+            console.log(`[DOM] Target input found: tag=${target.tagName}, class="${target.className}"`);
+            if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
+              target.value = val;
             } else {
-              textarea.innerText = val;
+              target.innerText = val;
             }
-            textarea.dispatchEvent(new Event('input', { bubbles: true }));
-            textarea.dispatchEvent(new Event('change', { bubbles: true }));
+            target.dispatchEvent(new Event('input', { bubbles: true }));
+            target.dispatchEvent(new Event('change', { bubbles: true }));
+          } else {
+            console.log('[DOM] ERROR: No valid chat input element found!');
           }
         }, data.text);
       } else if (data.type === 'send') {
-        // Click send button or hit Enter
+        console.log('[Bridge] Triggering send action');
         await chatPage.evaluate(() => {
           const buttons = Array.from(document.querySelectorAll('button'));
+          console.log(`[DOM] Found ${buttons.length} buttons.`);
+          
           const sendBtn = buttons.find(b => 
             b.innerText.toLowerCase().includes('send') || 
             b.innerHTML.includes('send') ||
@@ -276,9 +286,11 @@ wss.on('connection', (ws) => {
             b.querySelector('svg')
           );
           if (sendBtn) {
+            console.log(`[DOM] Clicking send button: text="${sendBtn.innerText}", class="${sendBtn.className}"`);
             sendBtn.click();
           } else {
-            const textarea = document.querySelector('textarea') || document.querySelector('[contenteditable="true"]');
+            console.log('[DOM] No send button matched. Attempting keyboard Enter fallback.');
+            const textarea = document.querySelector('textarea:not(.inputarea)') || document.querySelector('[contenteditable="true"]');
             if (textarea) {
               textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
             }
