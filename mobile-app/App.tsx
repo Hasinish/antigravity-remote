@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   SafeAreaView,
   StatusBar,
@@ -14,7 +14,7 @@ import { SetupScreen } from './src/components/SetupScreen';
 import { Header } from './src/components/Header';
 import { HistoryPanel } from './src/components/HistoryPanel';
 import { MessageFeed } from './src/components/MessageFeed';
-import { ChatInput } from './src/components/ChatInput';
+import { ChatInput, ChatInputHandle } from './src/components/ChatInput';
 
 import { styles } from './src/styles';
 import { Message, Conversation } from './src/types';
@@ -29,8 +29,6 @@ export default function App() {
   const [connecting, setConnecting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
-  const [inputText, setInputText] = useState('');
-  const [inputKey, setInputKey] = useState(0);
   const [selectedModel, setSelectedModel] = useState('Gemini 3.5 Flash (High)');
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -39,12 +37,13 @@ export default function App() {
   const [switchingConversation, setSwitchingConversation] = useState(false);
   const [switchOptions, setSwitchOptions] = useState<{ label: string; description: string }[] | null>(null);
   const [pendingSwitchId, setPendingSwitchId] = useState<string | null>(null);
+  const [switchedToTitle, setSwitchedToTitle] = useState<string | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const scrollViewRef = useRef<any>(null);
-  const isFromIDE = useRef(false);
-  const [switchedToTitle, setSwitchedToTitle] = useState<string | null>(null);
   const switchedToastTimer = useRef<any>(null);
+  // Ref to the ChatInput component so we can push IDE text in without re-rendering App
+  const chatInputRef = useRef<ChatInputHandle>(null);
 
   const [models, setModels] = useState<string[]>([
     'Gemini 3.5 Flash (High)',
@@ -54,7 +53,7 @@ export default function App() {
     'GPT-4o'
   ]);
 
-  const toggleModelDropdown = (show: boolean) => {
+  const toggleModelDropdown = useCallback((show: boolean) => {
     setShowModelDropdown(show);
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(
@@ -63,7 +62,7 @@ export default function App() {
         })
       );
     }
-  };
+  }, []);
 
   const connectToBridge = () => {
     if (!ipAddress.trim()) {
@@ -73,8 +72,8 @@ export default function App() {
     setConnecting(true);
     setErrorMsg('');
 
-    const wsUrl = ipAddress.includes(':') 
-      ? `ws://${ipAddress}` 
+    const wsUrl = ipAddress.includes(':')
+      ? `ws://${ipAddress}`
       : `ws://${ipAddress}:8080`;
 
     console.log(`Connecting to ${wsUrl}...`);
@@ -123,11 +122,9 @@ export default function App() {
           setSwitchOptions(null);
           setPendingSwitchId(null);
         } else if (data.type === 'ide_input') {
-          // Sync the IDE's chat input to the app without echoing back
-          isFromIDE.current = true;
-          setInputText(data.text);
+          // Push IDE text directly into ChatInput without re-rendering App
+          chatInputRef.current?.setTextExternal(data.text);
         } else if (data.type === 'conversation_switched') {
-          // Show a short toast banner
           setSwitchedToTitle(data.title);
           if (switchedToastTimer.current) clearTimeout(switchedToastTimer.current);
           switchedToastTimer.current = setTimeout(() => setSwitchedToTitle(null), 3000);
@@ -158,108 +155,55 @@ export default function App() {
     }
   };
 
-  const disconnectBridge = () => {
+  const disconnectBridge = useCallback(() => {
     if (socketRef.current) {
       socketRef.current.close();
       socketRef.current = null;
     }
     setConnected(false);
     setMessages([]);
-  };
+  }, []);
 
-  const lastSentText = useRef('');
-  const syncTimeout = useRef<any>(null);
-
-  const handleTextChange = (text: string) => {
-    setInputText(text);
-    // If this change was triggered by the IDE, don't send it back to avoid an echo loop
-    if (isFromIDE.current) {
-      isFromIDE.current = false;
-      lastSentText.current = text;
-      return;
-    }
-    
-    if (syncTimeout.current) {
-      clearTimeout(syncTimeout.current);
-    }
-
-    syncTimeout.current = setTimeout(() => {
-      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN && text !== lastSentText.current) {
-        lastSentText.current = text;
-        socketRef.current.send(
-          JSON.stringify({
-            type: 'input',
-            text
-          })
-        );
-      }
-    }, 100);
-  };
-
-  const handleKeyPress = (e: any) => {
-    const key = e.nativeEvent?.key ?? e.key;
-    const shiftKey = e.nativeEvent?.shiftKey ?? e.shiftKey;
-    if (key === 'Enter' && !shiftKey) {
-      e.preventDefault?.();
-      handleSend();
-    }
-  };
-
-  const handleSend = () => {
-    if (!inputText.trim()) return;
+  // Called by ChatInput (debounced) to sync current text to IDE
+  const handleTextChange = useCallback((text: string) => {
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-      // Clear any pending sync timeout
-      if (syncTimeout.current) {
-        clearTimeout(syncTimeout.current);
-      }
-
-      // Force sync the latest text first so the IDE is guaranteed to have it
-      socketRef.current.send(
-        JSON.stringify({
-          type: 'input',
-          text: inputText
-        })
-      );
-
-      // Send the native trigger to click the Send button
-      socketRef.current.send(
-        JSON.stringify({
-          type: 'send'
-        })
-      );
-      setInputText('');
-      lastSentText.current = '';
-      setInputKey((prev) => prev + 1);
+      socketRef.current.send(JSON.stringify({ type: 'input', text }));
     }
-  };
+  }, []);
 
-  const triggerNewChat = () => {
+  // Called by ChatInput when user presses Send
+  const handleSend = useCallback((text: string) => {
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-      socketRef.current.send(
-        JSON.stringify({
-          type: 'new_chat'
-        })
-      );
+      // First ensure IDE has latest text
+      socketRef.current.send(JSON.stringify({ type: 'input', text }));
+      // Then click Send
+      socketRef.current.send(JSON.stringify({ type: 'send' }));
     }
-  };
+  }, []);
 
-  const openHistory = () => {
+  const triggerNewChat = useCallback(() => {
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: 'new_chat' }));
+    }
+  }, []);
+
+  const openHistory = useCallback(() => {
     setShowModelDropdown(false);
     setSearchQuery('');
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({ type: 'list_conversations' }));
     }
-  };
+  }, []);
 
-  const selectConversation = (id: string) => {
+  const selectConversation = useCallback((id: string) => {
     setShowHistoryDropdown(false);
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       setSwitchingConversation(true);
       socketRef.current.send(JSON.stringify({ type: 'select_conversation', id }));
     }
-  };
+  }, []);
 
-  const confirmSwitch = (option: { label: string; description: string }, index: number) => {
+  const confirmSwitch = useCallback((option: { label: string; description: string }, index: number) => {
     setSwitchOptions(null);
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN && pendingSwitchId) {
       setSwitchingConversation(true);
@@ -273,32 +217,23 @@ export default function App() {
         })
       );
     }
-  };
+  }, [pendingSwitchId]);
 
-  const cancelSwitch = () => {
+  const cancelSwitch = useCallback(() => {
     setSwitchOptions(null);
     setPendingSwitchId(null);
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-      socketRef.current.send(
-        JSON.stringify({
-          type: 'cancel_switch'
-        })
-      );
+      socketRef.current.send(JSON.stringify({ type: 'cancel_switch' }));
     }
-  };
+  }, []);
 
-  const handleModelSelect = (model: string) => {
+  const handleModelSelect = useCallback((model: string) => {
     setSelectedModel(model);
     setShowModelDropdown(false);
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-      socketRef.current.send(
-        JSON.stringify({
-          type: 'change_model',
-          model
-        })
-      );
+      socketRef.current.send(JSON.stringify({ type: 'change_model', model }));
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (scrollViewRef.current) {
@@ -320,20 +255,10 @@ export default function App() {
         {Platform.OS === 'web' && (
           <style>
             {`
-              ::-webkit-scrollbar {
-                width: 6px;
-                height: 6px;
-              }
-              ::-webkit-scrollbar-track {
-                background: #0d1117;
-              }
-              ::-webkit-scrollbar-thumb {
-                background: #30363d;
-                border-radius: 3px;
-              }
-              ::-webkit-scrollbar-thumb:hover {
-                background: #8b949e;
-              }
+              ::-webkit-scrollbar { width: 6px; height: 6px; }
+              ::-webkit-scrollbar-track { background: #0d1117; }
+              ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+              ::-webkit-scrollbar-thumb:hover { background: #8b949e; }
             `}
           </style>
         )}
@@ -353,20 +278,10 @@ export default function App() {
       {Platform.OS === 'web' && (
         <style>
           {`
-            ::-webkit-scrollbar {
-              width: 6px;
-              height: 6px;
-            }
-            ::-webkit-scrollbar-track {
-              background: #0d1117;
-            }
-            ::-webkit-scrollbar-thumb {
-              background: #30363d;
-              border-radius: 3px;
-            }
-            ::-webkit-scrollbar-thumb:hover {
-              background: #8b949e;
-            }
+            ::-webkit-scrollbar { width: 6px; height: 6px; }
+            ::-webkit-scrollbar-track { background: #0d1117; }
+            ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+            ::-webkit-scrollbar-thumb:hover { background: #8b949e; }
           `}
         </style>
       )}
@@ -392,19 +307,19 @@ export default function App() {
 
         {switchOptions && (
           <View style={styles.historyOverlay}>
-            <TouchableOpacity 
-              style={styles.backdrop} 
-              activeOpacity={1} 
-              onPress={cancelSwitch} 
+            <TouchableOpacity
+              style={styles.backdrop}
+              activeOpacity={1}
+              onPress={cancelSwitch}
             />
-            <View style={[styles.historyPanel, { 
-              width: 320, 
-              padding: 0, 
-              overflow: 'hidden', 
-              backgroundColor: '#161b22', 
-              borderRadius: 6, 
-              borderWidth: 1, 
-              borderColor: '#30363d' 
+            <View style={[styles.historyPanel, {
+              width: 320,
+              padding: 0,
+              overflow: 'hidden',
+              backgroundColor: '#161b22',
+              borderRadius: 6,
+              borderWidth: 1,
+              borderColor: '#30363d'
             }]}>
               {switchOptions.map((opt, idx) => (
                 <TouchableOpacity
@@ -468,11 +383,9 @@ export default function App() {
         />
 
         <ChatInput
-          inputKey={inputKey}
-          inputText={inputText}
-          handleTextChange={handleTextChange}
-          handleKeyPress={handleKeyPress}
-          handleSend={handleSend}
+          ref={chatInputRef}
+          onTextChange={handleTextChange}
+          onSend={handleSend}
           selectedModel={selectedModel}
           showModelDropdown={showModelDropdown}
           setShowModelDropdown={toggleModelDropdown}
