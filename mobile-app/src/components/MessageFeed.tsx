@@ -59,8 +59,18 @@ export const MessageFeed: React.FC<MessageFeedProps> = React.memo(({
           }
 
           // Activity row — tool calls, commands, file edits etc.
-          const activity = summarizeActivity(msg, index === messages.length - 1);
+          const activity = summarizeActivity(msg, index === messages.length - 1, messages, index);
           if (!activity) return null;
+
+          if (activity.variant === 'divider') {
+            return (
+              <View key={index} style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>{activity.text}</Text>
+                <View style={styles.dividerLine} />
+              </View>
+            );
+          }
 
           return (
             <View

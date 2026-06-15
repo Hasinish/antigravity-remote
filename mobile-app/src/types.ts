@@ -11,7 +11,7 @@ export interface Message {
 export interface Activity {
   icon: string;
   text: string;
-  variant: 'info' | 'error' | 'running';
+  variant: 'info' | 'error' | 'running' | 'divider';
 }
 
 export interface Conversation {

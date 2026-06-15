@@ -411,6 +411,23 @@ export const styles = StyleSheet.create({
   activityTextRunning: {
     color: '#d29922'
   },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 12,
+    width: '100%',
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#21262d',
+  },
+  dividerText: {
+    color: '#8b949e',
+    fontSize: 12,
+    marginHorizontal: 12,
+    fontWeight: '500',
+  },
   inputArea: {
     padding: 16,
     backgroundColor: '#09090b',
