@@ -55,30 +55,37 @@ function getLatestTranscriptPath() {
 // Puppeteer helper to find the page containing the chat box
 async function findChatPage(browserInstance) {
   try {
-    const pages = await browserInstance.pages();
-    for (const page of pages) {
-      const url = page.url();
-      const title = await page.title().catch(() => '');
-      console.log(`[i] Scanning page: "${title}" (${url})`);
+    const targets = browserInstance.targets();
+    for (const target of targets) {
+      const type = target.type();
+      const url = target.url();
       
-      // Check if this page or any of its frames has a textarea
-      const hasTextarea = await page.$('textarea').catch(() => null);
-      if (hasTextarea) {
-        console.log(`[+] Identified chat page directly: "${title}"`);
-        return page;
-      }
-      
-      const frames = page.frames();
-      for (const frame of frames) {
-        const hasTextareaInFrame = await frame.$('textarea').catch(() => null);
-        if (hasTextareaInFrame) {
-          console.log(`[+] Identified chat page inside frame: ${frame.url()}`);
+      if (type === 'page' || type === 'webview') {
+        const page = await target.page().catch(() => null);
+        if (!page) continue;
+        
+        const title = await page.title().catch(() => '');
+        console.log(`[i] Scanning target: "${title}" (${url}) [type=${type}]`);
+        
+        // Check if this page or any of its frames has a textarea
+        const hasTextarea = await page.$('textarea').catch(() => null);
+        if (hasTextarea) {
+          console.log(`[+] Identified chat page directly from target: "${title}"`);
           return page;
+        }
+        
+        const frames = page.frames();
+        for (const frame of frames) {
+          const hasTextareaInFrame = await frame.$('textarea').catch(() => null);
+          if (hasTextareaInFrame) {
+            console.log(`[+] Identified chat page inside target frame: ${frame.url()}`);
+            return page;
+          }
         }
       }
     }
   } catch (error) {
-    console.error(`[-] Error scanning pages:`, error.message);
+    console.error(`[-] Error scanning targets:`, error.message);
   }
   return null;
 }
