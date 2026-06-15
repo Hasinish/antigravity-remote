@@ -15,8 +15,18 @@ export function getFileName(content: string): string {
   const match = content.match(/file:\/\/\/[^\s`]+/);
   if (!match) return 'file';
   const path = match[0].replace('file:///', '');
-  const parts = path.split(/[\\/]/);
+  const parts = path.split(/[\\\/]/);
   return parts[parts.length - 1] || path;
+}
+
+/** Extract +N -M diff stats from a CODE_ACTION content string */
+function getDiffStats(content: string): string {
+  const added = content.match(/\+(\d+)/);
+  const removed = content.match(/-(\d+)/);
+  const parts: string[] = [];
+  if (added) parts.push(`+${added[1]}`);
+  if (removed) parts.push(`-${removed[1]}`);
+  return parts.join(' ');
 }
 
 export function summarizeActivity(msg: Message, isLast: boolean): Activity | null {
@@ -51,33 +61,35 @@ export function summarizeActivity(msg: Message, isLast: boolean): Activity | nul
       const file = getFileName(content);
       const lines = content.match(/Showing lines (\d+) to (\d+)/);
       const range = lines ? ` (lines ${lines[1]}-${lines[2]})` : '';
-      return { icon: '📄', text: `${isUserAction ? 'You viewed' : 'Viewed'} ${file}${range}`, variant: 'info' };
+      return { icon: '📄', text: `Viewed ${file}${range}`, variant: 'info' };
     }
     case 'LIST_DIRECTORY': {
-      const summary = content.match(/Summary: (.+)/);
-      return { icon: '📁', text: summary ? summary[1] : 'Listed a directory', variant: 'info' };
+      return { icon: '📁', text: 'Listed directory', variant: 'info' };
     }
     case 'RUN_COMMAND': {
       if (msg.status === 'RUNNING') {
-        const desc = content.match(/Task Description: (.+)/);
-        return { icon: '⏳', text: desc ? `Running: ${desc[1]}` : 'Running command...', variant: 'running' };
+        const cmd = content.match(/CommandLine: (.+)/);
+        const raw = cmd ? cmd[1].trim() : 'Running command...';
+        return { icon: '⏳', text: raw.length > 60 ? raw.slice(0, 60) + '…' : raw, variant: 'running' };
       }
-      const cmd = content.match(/Command: (.+)/);
-      if (cmd) {
-        return { icon: '▶️', text: `${isUserAction ? 'You ran' : 'Ran'}: ${cmd[1]}`, variant: 'info' };
-      }
-      return { icon: '▶️', text: 'Command completed', variant: 'info' };
+      const cmd = content.match(/CommandLine: (.+)/);
+      const raw = cmd ? cmd[1].trim() : content.match(/Command: (.+)/)?.[1] || 'Command completed';
+      return { icon: '▶', text: raw.length > 80 ? raw.slice(0, 80) + '…' : raw, variant: 'info' };
     }
     case 'CODE_ACTION': {
       const file = getFileName(content);
       const created = content.includes('Created file');
-      const verb = isUserAction ? 'You edited' : created ? 'Created' : 'Edited';
-      return { icon: '✏️', text: `${verb} ${file}`, variant: 'info' };
+      const diff = getDiffStats(content);
+      const verb = created ? 'Created' : 'Edited';
+      const diffLabel = diff ? `  ${diff}` : '';
+      return { icon: created ? '✨' : '⚙️', text: `${verb} ${file}${diffLabel}`, variant: 'info' };
     }
     case 'GENERATE_IMAGE':
       return { icon: '🖼️', text: 'Generated an image', variant: 'info' };
-    case 'GREP_SEARCH':
-      return { icon: '🔍', text: 'Searched the codebase', variant: 'info' };
+    case 'GREP_SEARCH': {
+      const q = content.match(/Query: "(.+?)"/);
+      return { icon: '🔍', text: q ? `Searched: ${q[1]}` : 'Searched codebase', variant: 'info' };
+    }
     case 'SEARCH_WEB': {
       const q = content.match(/The search for "(.+?)"/);
       return { icon: '🌐', text: q ? `Searched: ${q[1]}` : 'Searched the web', variant: 'info' };

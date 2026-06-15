@@ -322,7 +322,8 @@ export const styles = StyleSheet.create({
     flex: 1
   },
   feedContent: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
     paddingBottom: 32
   },
   emptyFeed: {
@@ -337,20 +338,20 @@ export const styles = StyleSheet.create({
   },
   userMessageContainer: {
     width: '100%',
-    marginBottom: 20
+    marginBottom: 16
   },
   userBubble: {
-    backgroundColor: '#18181b', // Zinc-900 dark bubble
+    backgroundColor: '#18181b',
     borderWidth: 1,
-    borderColor: '#27272a', // Zinc-800 border
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderColor: '#27272a',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     width: '100%',
-    maxWidth: '100%'
   },
   modelMessageContainer: {
-    marginBottom: 24
+    marginBottom: 20,
+    marginTop: 4,
   },
   modelHeaderRow: {
     marginBottom: 6
@@ -363,52 +364,52 @@ export const styles = StyleSheet.create({
     letterSpacing: 0.5
   },
   modelBubble: {
-    backgroundColor: 'transparent', // Plain text directly on bg!
+    backgroundColor: 'transparent',
     borderWidth: 0,
     paddingHorizontal: 0,
     paddingVertical: 0,
     maxWidth: '100%'
   },
   messageText: {
-    color: '#f4f4f5', // Zinc-100
+    color: '#f4f4f5',
     fontSize: 14,
     lineHeight: 22
   },
+  // IDE-style: slim single-line activity row, no border box
   activityRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    alignSelf: 'flex-start',
+    alignItems: 'center',
     maxWidth: '100%',
-    backgroundColor: '#18181b',
-    borderWidth: 1,
-    borderColor: '#27272a',
-    borderRadius: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    marginBottom: 8
+    paddingVertical: 3,
+    marginBottom: 2,
   },
   activityIcon: {
-    fontSize: 12,
-    marginRight: 6
+    fontSize: 11,
+    marginRight: 5,
+    opacity: 0.7,
   },
   activityText: {
-    color: '#a1a1aa',
+    color: '#6e7681',
     fontSize: 12,
     lineHeight: 16,
-    flexShrink: 1
+    flex: 1,
+  },
+  activityChevron: {
+    color: '#484f58',
+    fontSize: 14,
+    marginLeft: 4,
   },
   activityRowError: {
-    backgroundColor: '#3b1616',
-    borderColor: '#ef4444'
+    // no background change — just text color
   },
   activityTextError: {
-    color: '#fca5a5'
+    color: '#f85149'
   },
   activityRowRunning: {
-    borderColor: '#f59e0b'
+    // running is amber text
   },
   activityTextRunning: {
-    color: '#fcd34d'
+    color: '#d29922'
   },
   inputArea: {
     padding: 16,

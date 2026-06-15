@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView } from 'react-native';
+import { View, Text, ScrollView, Platform } from 'react-native';
 import { styles } from '../styles';
 import { Message } from '../types';
 import { summarizeActivity } from '../utils/helpers';
@@ -14,6 +14,8 @@ export const MessageFeed: React.FC<MessageFeedProps> = React.memo(({
   messages,
   scrollViewRef,
 }) => {
+  // Group consecutive non-user-chat / non-model-chat messages into activity clusters
+  // so they render as a tight list under the preceding AI response
   return (
     <ScrollView
       ref={scrollViewRef}
@@ -51,16 +53,12 @@ export const MessageFeed: React.FC<MessageFeedProps> = React.memo(({
           if (isModelChat) {
             return (
               <View key={index} style={styles.modelMessageContainer}>
-                <View style={styles.modelHeaderRow}>
-                  <Text style={styles.modelNameText}>AI Assistant</Text>
-                </View>
-                <View style={styles.modelBubble}>
-                  <MarkdownText content={msg.content} />
-                </View>
+                <MarkdownText content={msg.content!} />
               </View>
             );
           }
 
+          // Activity row — tool calls, commands, file edits etc.
           const activity = summarizeActivity(msg, index === messages.length - 1);
           if (!activity) return null;
 
@@ -70,7 +68,7 @@ export const MessageFeed: React.FC<MessageFeedProps> = React.memo(({
               style={[
                 styles.activityRow,
                 activity.variant === 'error' && styles.activityRowError,
-                activity.variant === 'running' && styles.activityRowRunning
+                activity.variant === 'running' && styles.activityRowRunning,
               ]}
             >
               <Text style={styles.activityIcon}>{activity.icon}</Text>
@@ -78,11 +76,14 @@ export const MessageFeed: React.FC<MessageFeedProps> = React.memo(({
                 style={[
                   styles.activityText,
                   activity.variant === 'error' && styles.activityTextError,
-                  activity.variant === 'running' && styles.activityTextRunning
+                  activity.variant === 'running' && styles.activityTextRunning,
                 ]}
+                numberOfLines={1}
               >
                 {activity.text}
               </Text>
+              {/* Chevron matching IDE style */}
+              <Text style={styles.activityChevron}>›</Text>
             </View>
           );
         })
