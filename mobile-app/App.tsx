@@ -7,7 +7,8 @@ import {
   View,
   Text,
   ActivityIndicator,
-  TouchableOpacity
+  TouchableOpacity,
+  Linking
 } from 'react-native';
 
 import { SetupScreen } from './src/components/SetupScreen';
@@ -15,6 +16,8 @@ import { Header } from './src/components/Header';
 import { HistoryPanel } from './src/components/HistoryPanel';
 import { MessageFeed } from './src/components/MessageFeed';
 import { ChatInput, ChatInputHandle } from './src/components/ChatInput';
+import { OAuthWebView } from './src/components/OAuthWebView';
+import { QuotaPanel } from './src/components/QuotaPanel';
 
 import { styles } from './src/styles';
 import { Message, Conversation } from './src/types';
@@ -38,6 +41,12 @@ export default function App() {
   const [switchOptions, setSwitchOptions] = useState<{ label: string; description: string }[] | null>(null);
   const [pendingSwitchId, setPendingSwitchId] = useState<string | null>(null);
   const [switchedToTitle, setSwitchedToTitle] = useState<string | null>(null);
+  const [oauthUrl, setOauthUrl] = useState<string | null>(null);
+  const [loggedInUser, setLoggedInUser] = useState<string | null>(null);
+  const [showQuota, setShowQuota] = useState(false);
+  const [quotaModels, setQuotaModels] = useState<any[] | null>(null);
+  const [quotaTier, setQuotaTier] = useState<string | null>(null);
+  const [quotaLoading, setQuotaLoading] = useState(false);
 
   const socketRef = useRef<WebSocket | null>(null);
   const scrollViewRef = useRef<any>(null);
@@ -128,6 +137,21 @@ export default function App() {
           setSwitchedToTitle(data.title);
           if (switchedToastTimer.current) clearTimeout(switchedToastTimer.current);
           switchedToastTimer.current = setTimeout(() => setSwitchedToTitle(null), 3000);
+        } else if (data.type === 'quota_data') {
+          setQuotaModels(data.models || []);
+          setQuotaTier(data.userTier || null);
+          setQuotaLoading(false);
+        } else if (data.type === 'user_info') {
+          setLoggedInUser(data.name || null);
+        } else if (data.type === 'oauth_url') {
+          setOauthUrl(data.url);
+        } else if (data.type === 'login_complete') {
+          setOauthUrl(null);
+          if (data.success) {
+            setSwitchedToTitle('Logged in successfully');
+            if (switchedToastTimer.current) clearTimeout(switchedToastTimer.current);
+            switchedToastTimer.current = setTimeout(() => setSwitchedToTitle(null), 3000);
+          }
         } else if (data.type === 'model_changed') {
           setSelectedModel(data.model);
         } else if (data.type === 'show_model_dropdown') {
@@ -235,6 +259,34 @@ export default function App() {
     }
   }, []);
 
+  const openQuota = useCallback(() => {
+    setShowQuota(true);
+    setQuotaModels(null);
+    setQuotaLoading(true);
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: 'get_quota' }));
+    }
+  }, []);
+
+  const triggerLogIn = useCallback(() => {
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: 'log_in' }));
+    }
+  }, []);
+
+  const triggerLogOut = useCallback(() => {
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: 'log_out' }));
+    }
+  }, []);
+
+  const handleOauthCallback = useCallback((code: string, state: string, port: number) => {
+    setOauthUrl(null);
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: 'oauth_callback', code, state, port }));
+    }
+  }, []);
+
   useEffect(() => {
     if (scrollViewRef.current) {
       setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
@@ -294,6 +346,10 @@ export default function App() {
           openHistory={openHistory}
           triggerNewChat={triggerNewChat}
           disconnectBridge={disconnectBridge}
+          triggerLogIn={triggerLogIn}
+          triggerLogOut={triggerLogOut}
+          loggedInUser={loggedInUser}
+          onUsernameTap={openQuota}
         />
 
         <HistoryPanel
@@ -393,6 +449,23 @@ export default function App() {
           handleModelSelect={handleModelSelect}
         />
       </KeyboardAvoidingView>
+
+      {oauthUrl && (
+        <OAuthWebView
+          url={oauthUrl}
+          onCallback={handleOauthCallback}
+          onClose={() => setOauthUrl(null)}
+        />
+      )}
+
+      {showQuota && (
+        <QuotaPanel
+          models={quotaModels}
+          loading={quotaLoading}
+          userTier={quotaTier}
+          onClose={() => setShowQuota(false)}
+        />
+      )}
     </SafeAreaView>
   );
 }

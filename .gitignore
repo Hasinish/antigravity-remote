@@ -13,3 +13,7 @@ Thumbs.db
 
 # logs
 *.log
+
+# memory
+memory/
+

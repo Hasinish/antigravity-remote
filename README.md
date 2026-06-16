@@ -1,32 +1,42 @@
 # Antigravity Chat Remote Control
 
-> [!IMPORTANT]
-> **MANDATORY INSTRUCTIONS FOR AI AGENTS (STARTUP PROTOCOL):**
-> Before writing any code, proposing any plan, or taking any action, you **MUST** read the following files in order to load personality guidelines and the current project state:
-> 1. Read [personality.md](file:///d:/antigravity-remote/memory/personality.md) — Adopt this custom roast-loving developer persona immediately.
-> 2. Read [purpose.md](file:///d:/antigravity-remote/memory/purpose.md) — Understand the goals of this remote control system.
-> 3. Read [state.md](file:///d:/antigravity-remote/memory/state.md) — Review the active ports, selectors, and chromium workarounds.
-> 4. Read [history.md](file:///d:/antigravity-remote/memory/history.md) — Review past experiments, failures, and technical pivots.
+This repository contains the source code for a custom remote-control companion system designed for the **Antigravity agentic chat interface**. It enables real-time text input injection, action controls, and diagnostic checks directly from a web/mobile application or terminal.
 
 ---
 
-## Project Overview
-This repository contains the source code for a custom remote-control panel designed specifically for the **Antigravity agentic chat interface**. It enables real-time text input injection and action controls directly from a web browser or mobile application.
-
 ## Repository Structure
+
 ```
-├── memory/               # Custom system memory (Adopt persona & load state from here)
 ├── server/               # PC Bridge Server (Node.js + Puppeteer-core + WebSockets)
 ├── mobile-app/           # Mobile & Web Client App (React Native Expo)
 └── start-debugging-and-server.bat # Dev launcher script
 ```
 
+## Features & Diagnostics
+
+### 1. PC Bridge Server
+The bridge server connects to a running Antigravity IDE instance via Puppeteer debugging port `9222` and exposes a WebSocket server on port `8080`. The companion app uses this to inject text and control actions.
+
+### 2. User Status & Session Tracker (`server/get-user.js`)
+Queries running Antigravity Language Server processes, probes their Connect-RPC ports with CSRF tokens, and displays details for currently logged-in users.
+```bash
+node server/get-user.js
+```
+
+### 3. Model Quota Tracker (`server/get-quota.js`)
+Retrieves active session details and prints remaining model quotas (such as Gemini and Claude limits) for the production endpoint.
+```bash
+node server/get-quota.js
+```
+
+---
+
 ## Quick Start
 
 ### 1. Launch IDE & Bridge Server
 Double-click `start-debugging-and-server.bat` at the project root. This script will:
-* Kill existing IDE instances.
-* Start Antigravity IDE with `--remote-debugging-port=9222`.
+* Terminate existing IDE instances.
+* Start Antigravity IDE with remote debugging enabled (`--remote-debugging-port=9222`).
 * Boot the Node.js bridge server on port `8080`.
 
 ### 2. Launch Web/Mobile Client

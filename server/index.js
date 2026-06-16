@@ -64,6 +64,7 @@ let lastQuickPickOptions = null;
 let wasModelMenuOpen = false;
 let lastActiveModel = '';
 let lastMobileInputTime = 0;
+let lastKnownUser = undefined; // undefined = not yet checked
 
 // All keyboard/mouse operations against the IDE page are chained through this
 // so overlapping requests (e.g. fast typing) can't interleave Ctrl+A / modifier
@@ -1057,6 +1058,14 @@ wss.on('connection', (ws) => {
     sendTranscriptHistory(activeFilePath, ws);
   }
 
+  // Send logged-in user info shortly after connect
+  setTimeout(async () => {
+    if (ws.readyState === WebSocket.OPEN) {
+      const name = await getLoggedInUser();
+      ws.send(JSON.stringify({ type: 'user_info', name: name || null }));
+    }
+  }, 800);
+
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
@@ -1087,6 +1096,41 @@ wss.on('connection', (ws) => {
 async function handleMessage(ws, message) {
   const data = JSON.parse(message);
   console.log(`[Mobile -> PC]: Action = ${data.type}`, data.text ? `| text="${data.text}"` : '');
+
+  if (data.type === 'get_quota') {
+    try {
+      const result = await queryLanguageServer();
+      const userStatus = result?.userStatus || {};
+      const ORDER = [
+        'Gemini 3.5 Flash (Medium)',
+        'Gemini 3.5 Flash (High)',
+        'Gemini 3.5 Flash (Low)',
+        'Gemini 3.1 Pro (Low)',
+        'Gemini 3.1 Pro (High)',
+        'Claude Sonnet 4.6 (Thinking)',
+        'Claude Opus 4.6 (Thinking)',
+        'GPT-OSS 120B (Medium)',
+      ];
+      const models = (userStatus.cascadeModelConfigData?.clientModelConfigs || [])
+        .map(m => ({
+          label: m.label || 'Unknown',
+          remainingFraction: m.quotaInfo?.remainingFraction ?? null,
+          resetTime: m.quotaInfo?.resetTime || null,
+        }))
+        .sort((a, b) => {
+          const ai = ORDER.indexOf(a.label);
+          const bi = ORDER.indexOf(b.label);
+          if (ai === -1 && bi === -1) return 0;
+          if (ai === -1) return 1;
+          if (bi === -1) return -1;
+          return ai - bi;
+        });
+      ws.send(JSON.stringify({ type: 'quota_data', models, userName: userStatus.name || null, userTier: userStatus.userTier?.name || null }));
+    } catch (e) {
+      ws.send(JSON.stringify({ type: 'quota_data', models: [], error: e.message }));
+    }
+    return;
+  }
 
   const page = await ensureChatPage();
   if (!page) {
@@ -1302,7 +1346,7 @@ async function handleMessage(ws, message) {
           console.log(`[Bridge] Triggering change model action to: ${data.model}`);
           const success = await page.evaluate(async (model) => {
             let options = Array.from(document.querySelectorAll('button[class*="group/popover-item"]'));
-            
+
             if (options.length === 0) {
               const allButtons = Array.from(document.querySelectorAll('button'));
               const modelBtn = allButtons.find(b => {
@@ -1310,18 +1354,18 @@ async function handleMessage(ws, message) {
                 return label.includes('select model') || label.includes('model selector');
               });
               if (!modelBtn) return false;
-              
+
               modelBtn.click();
               await new Promise(resolve => setTimeout(resolve, 300));
               options = Array.from(document.querySelectorAll('button[class*="group/popover-item"]'));
             }
-            
+
             const targetOpt = options.find(o => {
               const text = (o.innerText || '').toLowerCase();
               const target = model.toLowerCase();
               return text === target || text.includes(target);
             });
-            
+
             if (targetOpt) {
               targetOpt.click();
               return true;
@@ -1330,7 +1374,420 @@ async function handleMessage(ws, message) {
           }, data.model);
           console.log('[Bridge] Change model result:', success);
           ws.send(JSON.stringify({ type: 'ack', action: 'change_model', success }));
+
+        } else if (data.type === 'log_out') {
+          console.log('[Bridge] Triggering log out action');
+
+          // Step 1: Click the profile icon (aria-label="Profile") in the VS Code title bar
+          const profileCoord = await page.evaluate(() => {
+            const el = Array.from(document.querySelectorAll('a')).find(a => a.getAttribute('aria-label') === 'Profile');
+            if (!el) return null;
+            const rect = el.getBoundingClientRect();
+            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+          });
+
+          if (!profileCoord) {
+            console.log('[-] Profile button not found');
+            ws.send(JSON.stringify({ type: 'error', message: 'Profile button not found in IDE header' }));
+            return;
+          }
+          await page.mouse.click(profileCoord.x, profileCoord.y);
+          await new Promise(r => setTimeout(r, 600));
+
+          // Step 2: Click the Google Auth submenu item to expand it
+          // Items are LI.action-item[role="presentation"] inside .monaco-menu-container
+          const googleAuthCoord = await page.evaluate(() => {
+            const el = Array.from(document.querySelectorAll('.monaco-menu-container li.action-item'))
+              .find(e => (e.innerText || e.textContent || '').toLowerCase().includes('google auth'));
+            if (!el) return null;
+            const rect = el.getBoundingClientRect();
+            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+          });
+
+          if (!googleAuthCoord) {
+            console.log('[-] Google Auth submenu item not found');
+            ws.send(JSON.stringify({ type: 'error', message: 'Google Auth submenu not found' }));
+            return;
+          }
+          await page.mouse.click(googleAuthCoord.x, googleAuthCoord.y);
+          await new Promise(r => setTimeout(r, 500));
+
+          // Step 3: Click "Sign Out" in the expanded submenu (same LI.action-item pattern)
+          const signOutCoord = await page.evaluate(() => {
+            const el = Array.from(document.querySelectorAll('.monaco-menu-container li.action-item'))
+              .find(e => /^sign out$/i.test((e.innerText || e.textContent || '').trim()));
+            if (!el) return null;
+            const rect = el.getBoundingClientRect();
+            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+          });
+
+          if (!signOutCoord) {
+            console.log('[-] Sign Out button not found');
+            ws.send(JSON.stringify({ type: 'error', message: 'Sign Out button not found' }));
+            return;
+          }
+          await page.mouse.click(signOutCoord.x, signOutCoord.y);
+          await new Promise(r => setTimeout(r, 700));
+
+          // Step 4: Confirm the "Sign out of 'X'?" dialog
+          const confirmCoord = await page.evaluate(() => {
+            const el = Array.from(document.querySelectorAll('a.monaco-button, button')).find(
+              e => /^sign out$/i.test((e.innerText || e.textContent || '').trim())
+            );
+            if (!el) return null;
+            const rect = el.getBoundingClientRect();
+            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+          });
+          if (confirmCoord) {
+            console.log('[Bridge] Confirming Sign Out dialog');
+            await page.mouse.click(confirmCoord.x, confirmCoord.y);
+          }
+
+          console.log('[Bridge] Log out complete');
+          ws.send(JSON.stringify({ type: 'ack', action: 'log_out', success: true }));
+          setTimeout(async () => {
+            const name = await getLoggedInUser();
+            broadcast({ type: 'user_info', name: name || null });
+          }, 1000);
+
+        } else if (data.type === 'log_in') {
+          console.log('[Bridge] Triggering log in action');
+
+          // Step 1: Click the blue "Log in ->" button in the IDE header
+          const loginCoord = await page.evaluate(() => {
+            const candidates = Array.from(document.querySelectorAll('button, a'));
+            for (const el of candidates) {
+              const text = (el.innerText || el.textContent || '').trim().toLowerCase();
+              if (text.includes('log in') || text === 'login') {
+                const rect = el.getBoundingClientRect();
+                if (rect.width > 0) return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+              }
+            }
+            return null;
+          });
+
+          if (!loginCoord) {
+            console.log('[-] Log in button not found');
+            ws.send(JSON.stringify({ type: 'error', message: 'Log in button not found in IDE header' }));
+            return;
+          }
+          await page.mouse.click(loginCoord.x, loginCoord.y);
+          await new Promise(r => setTimeout(r, 500));
+
+          // Step 2: Inject interceptors BEFORE clicking Continue with Google, to capture the OAuth URL
+          // that Electron would normally hand off to the system browser.
+          await page.evaluate(() => {
+            window.__capturedOAuthUrl = null;
+
+            // Hook window.open (used by some Electron webviews)
+            const origOpen = window.open;
+            window.open = function(url, ...args) {
+              if (url && url.includes('accounts.google.com')) {
+                window.__capturedOAuthUrl = url;
+                console.log('[OAuth Intercept] window.open captured:', url.substring(0, 80));
+                return null; // suppress the system browser open
+              }
+              return origOpen.apply(this, [url, ...args]);
+            };
+
+            // Hook Electron ipcRenderer if accessible
+            try {
+              const { ipcRenderer } = require('electron');
+              const origSend = ipcRenderer.send.bind(ipcRenderer);
+              ipcRenderer.send = function(channel, ...args) {
+                const url = args[0];
+                if (typeof url === 'string' && url.includes('accounts.google.com')) {
+                  window.__capturedOAuthUrl = url;
+                  console.log('[OAuth Intercept] ipcRenderer.send captured:', url.substring(0, 80));
+                  return; // suppress
+                }
+                return origSend(channel, ...args);
+              };
+            } catch (e) {
+              // ipcRenderer not accessible in this context
+            }
+          });
+
+          // Step 3: Click "Continue with Google"
+          const googleBtnCoord = await page.evaluate(() => {
+            const candidates = Array.from(document.querySelectorAll('button, a'));
+            for (const el of candidates) {
+              const text = (el.innerText || el.textContent || '').trim().toLowerCase();
+              if (text.includes('continue with google') || text.includes('sign in with google')) {
+                const rect = el.getBoundingClientRect();
+                if (rect.width > 0) return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+              }
+            }
+            return null;
+          });
+
+          if (!googleBtnCoord) {
+            console.log('[-] Continue with Google button not found');
+            ws.send(JSON.stringify({ type: 'error', message: 'Continue with Google button not found' }));
+            return;
+          }
+          await page.mouse.click(googleBtnCoord.x, googleBtnCoord.y);
+          await new Promise(r => setTimeout(r, 1500));
+
+          // Step 4: Read the OAuth URL from Brave's address bar via Windows UI Automation
+          const { execSync } = require('child_process');
+          let oauthUrl = null;
+          try {
+            const ps = `
+Add-Type -AssemblyName UIAutomationClient; Add-Type -AssemblyName UIAutomationTypes
+$brave = Get-Process -Name 'brave' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+if (-not $brave) { exit 1 }
+$cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, [int]$brave.Id)
+$win = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond)
+if (-not $win) { exit 1 }
+$editCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
+$edits = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $editCond)
+foreach ($e in $edits) {
+  try {
+    $vp = $e.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+    $val = $vp.Current.Value
+    if ($val -like '*accounts.google.com*') { Write-Output $val; exit 0 }
+  } catch {}
+}
+`;
+            oauthUrl = execSync(`powershell -NoProfile -Command "${ps.replace(/\n/g, ' ')}"`, { timeout: 8000 }).toString().trim();
+          } catch (e) {
+            console.log('[Bridge] UI Automation URL read failed:', e.message.substring(0, 80));
+          }
+
+          if (oauthUrl && oauthUrl.includes('accounts.google.com')) {
+            const fullUrl = oauthUrl.startsWith('http') ? oauthUrl : 'https://' + oauthUrl;
+            console.log('[Bridge] OAuth URL captured via UI Automation');
+            ws.send(JSON.stringify({ type: 'oauth_url', url: fullUrl }));
+            // Poll for Next button — skips disabled state, clicks only when "Success, Continuing..." is live
+            ;(async () => {
+              for (let i = 0; i < 60; i++) {
+                await new Promise(r => setTimeout(r, 1000));
+                const clicked = await clickNextButtonOnAnyPage();
+                if (clicked) {
+                  broadcast({ type: 'login_complete', success: true });
+                  ;(async () => {
+                    for (let i = 0; i < 15; i++) {
+                      await new Promise(r => setTimeout(r, 1000));
+                      const name = await getLoggedInUser();
+                      if (name !== null) {
+                        lastKnownUser = name;
+                        broadcast({ type: 'user_info', name });
+                        break;
+                      }
+                    }
+                  })();
+                  break;
+                }
+              }
+            })();
+          } else {
+            console.log('[Bridge] Could not read OAuth URL — browser opened directly.');
+            ws.send(JSON.stringify({ type: 'ack', action: 'log_in', success: true, note: 'browser_opened' }));
+          }
+
+        } else if (data.type === 'oauth_callback') {
+          console.log(`[Bridge] Received OAuth callback from mobile: code=${data.code ? 'present' : 'missing'}, port=${data.port}`);
+          await forwardOauthCallback(ws, data.code, data.state, data.port);
   }
+}
+
+async function queryLanguageServer() {
+  const { execSync } = require('child_process');
+  const out = execSync(
+    'powershell -Command "Get-WmiObject Win32_Process -Filter \\"Name like \'%language_server%\'\\" | Select-Object ProcessId, CommandLine | ConvertTo-Json"',
+    { stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }
+  ).toString().trim();
+  if (!out) return null;
+
+  const list = Array.isArray(JSON.parse(out)) ? JSON.parse(out) : [JSON.parse(out)];
+  for (const proc of list) {
+    if (!proc || !proc.CommandLine) continue;
+    if (proc.CommandLine.includes('daily-cloudcode-pa.googleapis.com')) continue;
+    const csrfMatch = proc.CommandLine.match(/--csrf_token\s+(\S+)/);
+    const extMatch  = proc.CommandLine.match(/--extension_server_csrf_token\s+(\S+)/);
+    const tokens = [csrfMatch?.[1], extMatch?.[1]].filter(Boolean);
+    if (!tokens.length) continue;
+
+    const portsOut = execSync(
+      `powershell -Command "Get-NetTCPConnection -State Listen | Where-Object { $_.OwningProcess -eq ${proc.ProcessId} } | Select-Object -ExpandProperty LocalPort"`,
+      { stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }
+    ).toString();
+    const ports = [...new Set(portsOut.split(/[\r\n]+/).map(p => parseInt(p.trim())).filter(Boolean))];
+
+    for (const port of ports) {
+      for (const token of tokens) {
+        try {
+          const result = await new Promise((resolve, reject) => {
+            const body = JSON.stringify({ metadata: { ideName: 'antigravity', extensionName: 'antigravity', locale: 'en' } });
+            const req = http.request({
+              hostname: '127.0.0.1', port, method: 'POST',
+              path: '/exa.language_server_pb.LanguageServerService/GetUserStatus',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Codeium-Csrf-Token': token,
+                'Connect-Protocol-Version': '1',
+                'Content-Length': Buffer.byteLength(body)
+              }
+            }, res => {
+              let d = '';
+              res.on('data', c => d += c);
+              res.on('end', () => res.statusCode < 300 ? resolve(JSON.parse(d)) : reject());
+            });
+            req.on('error', reject);
+            req.write(body);
+            req.end();
+          });
+          return result;
+        } catch (e) {}
+      }
+    }
+  }
+  return null;
+}
+
+async function getLoggedInUser() {
+  try {
+    const result = await queryLanguageServer();
+    return result?.userStatus?.name || null;
+  } catch (e) {}
+  return null;
+}
+
+// Called when the mobile WebView intercepts the OAuth callback redirect.
+// We forward it to the IDE's local OAuth server (same machine) to complete login.
+async function clickNextButtonOnAnyPage() {
+  try {
+    const pages = await browser.pages();
+    for (const page of pages) {
+      const coord = await page.evaluate(() => {
+        // Primary: exact class used by Antigravity IDE welcome screen
+        let el = document.querySelector('button.next-button');
+        // Fallback: any enabled button/element whose text starts with "Next"
+        if (!el) {
+          el = Array.from(document.querySelectorAll('*')).find(e => {
+            const text = (e.innerText || e.textContent || '').trim();
+            const rect = e.getBoundingClientRect();
+            if (!/^next/i.test(text) || text.length >= 20) return false;
+            if (rect.width === 0 || rect.height === 0) return false;
+            if (e.disabled || e.getAttribute('disabled') !== null) return false;
+            if (e.getAttribute('aria-disabled') === 'true') return false;
+            if (parseFloat(window.getComputedStyle(e).opacity) < 0.5) return false;
+            return true;
+          });
+        }
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      }).catch(() => null);
+      if (coord) {
+        await page.mouse.click(coord.x, coord.y);
+        console.log('[Bridge] Clicked Next button after login');
+        return true;
+      }
+    }
+  } catch (e) {
+    console.error('[Bridge] clickNextButton error:', e.message);
+  }
+  return false;
+}
+
+async function forwardOauthCallback(ws, code, state, port) {
+  const http = require('http');
+  const callbackUrl = `http://localhost:${port}/oauth-callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+  console.log(`[Bridge] Forwarding OAuth callback to ${callbackUrl}`);
+
+  return new Promise((resolve) => {
+    http.get(callbackUrl, (res) => {
+      let body = '';
+      res.on('data', d => body += d);
+      res.on('end', async () => {
+        console.log(`[Bridge] OAuth callback response: ${res.statusCode}`);
+        // Poll until Next button is enabled — grayed out during "Awaiting Authentication...",
+        // becomes clickable only after "Success, Continuing..." appears
+        let clicked = false;
+        for (let i = 0; i < 30; i++) {
+          await new Promise(r => setTimeout(r, 1000));
+          clicked = await clickNextButtonOnAnyPage();
+          if (clicked) break;
+        }
+        ws.send(JSON.stringify({ type: 'login_complete', success: res.statusCode < 400 }));
+        // Poll until IDE titlebar reflects logged-in state
+        ;(async () => {
+          for (let i = 0; i < 15; i++) {
+            await new Promise(r => setTimeout(r, 1000));
+            const name = await getLoggedInUser();
+            if (name !== null) {
+              lastKnownUser = name;
+              broadcast({ type: 'user_info', name });
+              break;
+            }
+          }
+        })();
+        resolve();
+      });
+    }).on('error', (e) => {
+      console.error(`[Bridge] OAuth callback forward failed:`, e.message);
+      ws.send(JSON.stringify({ type: 'login_complete', success: false, error: e.message }));
+      resolve();
+    });
+  });
+}
+
+// Continuously watch for the Welcome screen Next button and click it when enabled.
+// This is safe because button.next-button only exists on the IDE welcome/auth page.
+async function startWatchingNextButton() {
+  let tick = 0;
+  const poll = async () => {
+    tick++;
+    try {
+      if (browser) {
+        const pages = await browser.pages().catch(() => []);
+
+        // Every ~6s check if the logged-in user changed (e.g. user logged out in IDE directly)
+        if (tick % 4 === 0) {
+          const name = await getLoggedInUser();
+          const nameOrNull = name || null;
+          if (lastKnownUser !== nameOrNull) {
+            lastKnownUser = nameOrNull;
+            console.log(`[Bridge] User state changed: ${nameOrNull}`);
+            broadcast({ type: 'user_info', name: nameOrNull });
+          }
+        }
+
+        for (const page of pages) {
+          const clicked = await page.evaluate(() => {
+            const el = document.querySelector('button.next-button');
+            if (!el) return false;
+            if (el.disabled || el.getAttribute('disabled') !== null) return false;
+            if (el.getAttribute('aria-disabled') === 'true') return false;
+            if (parseFloat(window.getComputedStyle(el).opacity) < 0.5) return false;
+            el.click();
+            return true;
+          }).catch(() => false);
+          if (clicked) {
+            console.log('[Bridge] Next button watcher clicked Next button');
+            broadcast({ type: 'login_complete', success: true });
+            // Poll until IDE titlebar reflects logged-in state (can take several seconds)
+            ;(async () => {
+              for (let i = 0; i < 15; i++) {
+                await new Promise(r => setTimeout(r, 1000));
+                const name = await getLoggedInUser();
+                if (name !== null) {
+                  lastKnownUser = name;
+                  broadcast({ type: 'user_info', name });
+                  break;
+                }
+              }
+            })();
+            break;
+          }
+        }
+      }
+    } catch (e) {}
+    setTimeout(poll, 1500);
+  };
+  poll();
 }
 
 server.listen(PORT, '0.0.0.0', async () => {
@@ -1338,4 +1795,5 @@ server.listen(PORT, '0.0.0.0', async () => {
   await connectToIDE();
   startWatchingTranscript();
   startWatchingIDEInput();
+  startWatchingNextButton();
 });

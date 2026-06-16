@@ -31,6 +31,11 @@ async function main() {
     const cmd = proc.CommandLine;
     const pid = proc.ProcessId;
     
+    // Only check the production endpoint
+    if (cmd.includes('daily-cloudcode-pa.googleapis.com')) {
+      continue;
+    }
+    
     // Extract both tokens
     const tokens = [];
     const csrfMatch = cmd.match(/--csrf_token\s+([^\s]+)/);

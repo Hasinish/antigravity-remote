@@ -235,12 +235,38 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     marginLeft: 8
   },
+  logInBtn: {
+    backgroundColor: '#1d4ed8',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    marginRight: 8
+  },
+  logInBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '600'
+  },
+  logOutBtn: {
+    backgroundColor: '#18181b',
+    borderWidth: 1,
+    borderColor: '#3f3f46',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    marginRight: 8
+  },
+  logOutBtnText: {
+    color: '#a1a1aa',
+    fontSize: 12,
+    fontWeight: '500'
+  },
   newChatBtn: {
     backgroundColor: '#18181b',
     borderWidth: 1,
     borderColor: '#27272a',
     paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     borderRadius: 6,
     marginRight: 8
   },
@@ -251,7 +277,7 @@ export const styles = StyleSheet.create({
   },
   disconnectBtn: {
     paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     borderWidth: 1,
     borderColor: '#f87171',
     borderRadius: 6
